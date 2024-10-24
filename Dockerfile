@@ -12,6 +12,6 @@ WORKDIR /app/cmd/server
 
 RUN go build -o /grpc-chat-server
 
-EXPOSE 50051
+EXPOSE 8080
 
 CMD ["/grpc-chat-server"]
