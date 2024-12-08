@@ -4,7 +4,7 @@ steps:
   args: [
     'build',
     '-t',
-    'us-central1-docker.pkg.dev/$PROJECT_ID/grpc-chat-server/grpc-chat-server:${SHORT_SHA}',
+    'us-central1-docker.pkg.dev/grpc-chat-app/grpc-chat-server/grpc-chat-server:${SHORT_SHA}',
     '.'
   ]
 
@@ -12,7 +12,7 @@ steps:
 - name: 'gcr.io/cloud-builders/docker'
   args: [
     'push',
-    'us-central1-docker.pkg.dev/$PROJECT_ID/grpc-chat-server/grpc-chat-server:${SHORT_SHA}'
+    'us-central1-docker.pkg.dev/grpc-chat-app/grpc-chat-server/grpc-chat-server:${SHORT_SHA}'
   ]
 
 # Cloud Runにデプロイするステップ
@@ -22,7 +22,7 @@ steps:
     'deploy',
     'grpc-chat-server',
     '--image',
-    'us-central1-docker.pkg.dev/$PROJECT_ID/grpc-chat-server/grpc-chat-server:${SHORT_SHA}',
+    'us-central1-docker.pkg.dev/grpc-chat-app/grpc-chat-server/grpc-chat-server:${SHORT_SHA}',
     '--platform',
     'managed',
     '--region',
