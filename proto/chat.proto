@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package chat;
+
+// Goのコードを生成する際のパッケージパスを指定
+option go_package = "gen/api/chat";
+
+// サービス定義
+service ChatService {
+  // チャットメッセージをリクエストしてレスポンスを得るメソッド
+  rpc GetChatMessages (ChatRequest) returns (ChatResponse);
+}
+
+// クライアントからのリクエストメッセージ
+message ChatRequest {
+  string user_id = 1; // Firestoreから語尾の設定を取得するためのユーザーID
+}
+
+// サーバーからのレスポンスメッセージ
+message ChatResponse {
+  repeated string messages = 1; // 更新されたチャットメッセージリスト
+}
