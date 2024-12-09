@@ -34,6 +34,46 @@ func NewChatServiceServer(client *firestore.Client) *ChatServiceServer {
 	}
 }
 
+func (s *ChatServiceServer) getUserSuffix(ctx context.Context, userId string) (string, error) {
+	userDoc, err := s.firestoreClient.Collection(collectionUsers).Doc(userId).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			log.Printf("UserID %s not found in Firestore", userId)
+			return "", status.Errorf(codes.NotFound, "User not found: %s", userId)
+		}
+		log.Printf("Error fetching user document: %v", err)
+		return "", status.Errorf(codes.Internal, "Error fetching user document: %v", err)
+	}
+
+	rawSuffix, ok := userDoc.Data()["suffixType"].(string)
+	if !ok {
+		log.Printf("Invalid suffixType for UserID: %s, defaulting to empty", userId)
+		return "", nil
+	}
+
+	switch rawSuffix {
+	case "猫":
+		return "にゃん", nil
+	case "犬":
+		return "わん", nil
+	case "キャラクター":
+		return "だよん", nil
+	default:
+		return "", nil
+	}
+}
+
+func (s *ChatServiceServer) fetchUnreadMessages(ctx context.Context) ([]*firestore.DocumentSnapshot, error) {
+	messagesQuery := s.firestoreClient.Collection(collectionMessages).
+		Where("read", "!=", true)
+	messagesSnapshot, err := messagesQuery.Documents(ctx).GetAll()
+	if err != nil {
+		log.Printf("Failed to fetch messages: %v", err)
+		return nil, status.Errorf(codes.Internal, "Failed to fetch messages: %v", err)
+	}
+	return messagesSnapshot, nil
+}
+
 func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatRequest) (*pb.ChatResponse, error) {
 	if s.firestoreClient == nil {
 		return nil, status.Error(codes.Internal, "Firestore client is not initialized")
@@ -44,42 +84,14 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 		return nil, status.Errorf(codes.Internal, "Failed to update messages: %v", err)
 	}
 
-	log.Printf("Fetching user data for UserID: %s", req.UserId)
-	userDoc, err := s.firestoreClient.Collection(collectionUsers).Doc(req.UserId).Get(ctx)
+	suffix, err := s.getUserSuffix(ctx, req.UserId)
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			log.Printf("UserID %s not found in Firestore", req.UserId)
-			return nil, status.Errorf(codes.NotFound, "User not found: %s", req.UserId)
-		}
-		log.Printf("Error fetching user document: %v", err)
-		return nil, status.Errorf(codes.Internal, "Error fetching user document: %v", err)
+		return nil, err
 	}
 
-	// suffixType を取得し、対応する接尾辞を決定
-	rawSuffix, ok := userDoc.Data()["suffixType"].(string)
-	if !ok {
-		log.Printf("Invalid suffixType for UserID: %s, defaulting to empty", req.UserId)
-		rawSuffix = ""
-	}
-
-	var suffix string
-	switch rawSuffix {
-	case "猫":
-		suffix = "にゃん"
-	case "犬":
-		suffix = "わん"
-	case "キャラクター":
-		suffix = "だよん"
-	default:
-		suffix = ""
-	}
-
-	log.Println("Fetching unread messages...")
-	messagesQuery := s.firestoreClient.Collection(collectionMessages).
-		Where("read", "!=", true)
-	messagesSnapshot, err := messagesQuery.Documents(ctx).GetAll()
+	messagesSnapshot, err := s.fetchUnreadMessages(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to fetch messages: %v", err)
+		return nil, err
 	}
 
 	if len(messagesSnapshot) == 0 {
@@ -111,7 +123,7 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 }
 
 func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client) error {
-	iter := client.Collection("messages").Documents(ctx)
+	iter := client.Collection("messages").Where("read", "==", nil).Documents(ctx) // 存在しないフィールドを対象
 	for {
 		doc, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
@@ -122,16 +134,13 @@ func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client
 			return err
 		}
 
-		// `read` フィールドが存在しない場合にのみ追加
-		if _, exists := doc.Data()["read"]; !exists {
-			_, err := doc.Ref.Update(ctx, []firestore.Update{
-				{Path: "read", Value: false},
-			})
-			if err != nil {
-				log.Printf("Failed to update document %s: %v", doc.Ref.ID, err)
-			} else {
-				log.Printf("Document %s updated successfully", doc.Ref.ID)
-			}
+		_, err = doc.Ref.Update(ctx, []firestore.Update{
+			{Path: "read", Value: false},
+		})
+		if err != nil {
+			log.Printf("Failed to update document %s: %v", doc.Ref.ID, err)
+		} else {
+			log.Printf("Document %s updated successfully", doc.Ref.ID)
 		}
 	}
 	return nil
