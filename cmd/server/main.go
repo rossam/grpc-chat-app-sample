@@ -3,6 +3,7 @@ package main
 import (
 	"cloud.google.com/go/firestore"
 	"context"
+	"errors"
 	"fmt"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -47,14 +48,29 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 	userDoc, err := s.firestoreClient.Collection(collectionUsers).Doc(req.UserId).Get(ctx)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
+			log.Printf("UserID %s not found in Firestore", req.UserId)
 			return nil, status.Errorf(codes.NotFound, "User not found: %s", req.UserId)
 		}
-		return nil, status.Errorf(codes.Internal, "Failed to fetch user data: %v", err)
+		log.Printf("Error fetching user document: %v", err)
+		return nil, status.Errorf(codes.Internal, "Error fetching user document: %v", err)
 	}
 
-	suffix, ok := userDoc.Data()["suffixType"].(string)
+	// suffixType を取得し、対応する接尾辞を決定
+	rawSuffix, ok := userDoc.Data()["suffixType"].(string)
 	if !ok {
 		log.Printf("Invalid suffixType for UserID: %s, defaulting to empty", req.UserId)
+		rawSuffix = ""
+	}
+
+	var suffix string
+	switch rawSuffix {
+	case "猫":
+		suffix = "にゃん"
+	case "犬":
+		suffix = "わん"
+	case "キャラクター":
+		suffix = "だよん"
+	default:
 		suffix = ""
 	}
 
@@ -98,7 +114,7 @@ func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client
 	iter := client.Collection("messages").Documents(ctx)
 	for {
 		doc, err := iter.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
