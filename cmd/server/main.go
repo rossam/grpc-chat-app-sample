@@ -3,7 +3,6 @@ package main
 import (
 	"cloud.google.com/go/firestore"
 	"context"
-	"errors"
 	"fmt"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -38,33 +37,19 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 	if s.firestoreClient == nil {
 		return nil, status.Error(codes.Internal, "Firestore client is not initialized")
 	}
-	
-	// Firestoreのコレクション一覧を取得してログ出力
-	log.Println("Fetching all Firestore collections for debugging...")
-	iter := s.firestoreClient.Collections(ctx)
-	for {
-		col, err := iter.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			log.Printf("Error fetching Firestore collections: %v", err)
-			break
-		}
-		log.Printf("Firestore collection: %s", col.ID)
+
+	// メッセージの既読状態を初期化
+	if err := updateMessagesWithDefaultRead(ctx, s.firestoreClient); err != nil {
+		return nil, status.Errorf(codes.Internal, "Failed to update messages: %v", err)
 	}
 
 	log.Printf("Fetching user data for UserID: %s", req.UserId)
 	userDoc, err := s.firestoreClient.Collection(collectionUsers).Doc(req.UserId).Get(ctx)
-
 	if err != nil {
-
 		if status.Code(err) == codes.NotFound {
-			log.Printf("UserID %s not found in Firestore", req.UserId)
 			return nil, status.Errorf(codes.NotFound, "User not found: %s", req.UserId)
 		}
-		log.Printf("Error fetching user document: %v", err)
-		return nil, status.Errorf(codes.Internal, "Error fetching user document: %v", err)
+		return nil, status.Errorf(codes.Internal, "Failed to fetch user data: %v", err)
 	}
 
 	suffix, ok := userDoc.Data()["suffixType"].(string)
@@ -107,6 +92,33 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 
 	log.Printf("Successfully fetched and updated %d messages", len(updatedMessages))
 	return &pb.ChatResponse{Messages: updatedMessages}, nil
+}
+
+func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client) error {
+	iter := client.Collection("messages").Documents(ctx)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			log.Printf("Error iterating documents: %v", err)
+			return err
+		}
+
+		// `read` フィールドが存在しない場合にのみ追加
+		if _, exists := doc.Data()["read"]; !exists {
+			_, err := doc.Ref.Update(ctx, []firestore.Update{
+				{Path: "read", Value: false},
+			})
+			if err != nil {
+				log.Printf("Failed to update document %s: %v", doc.Ref.ID, err)
+			} else {
+				log.Printf("Document %s updated successfully", doc.Ref.ID)
+			}
+		}
+	}
+	return nil
 }
 
 func main() {
