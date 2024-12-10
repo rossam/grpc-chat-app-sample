@@ -122,21 +122,34 @@ func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client
 }
 
 // 未読のメッセージをFirestoreから取得する関数
-func (s *ChatServiceServer) fetchUnreadMessages(ctx context.Context) ([]*firestore.DocumentSnapshot, error) {
-	// Firestoreクエリを作成(Firestoreデータベースに格納されているデータを、特定の条件で検索・取得するための命令のこと)
-	// "messages"コレクションから、"read"フィールドがtrue以外のドキュメントを対象とする
-	messagesQuery := s.firestoreClient.Collection(collectionMessages).
-		Where("read", "!=", true)
+func (s *ChatServiceServer) fetchUnreadMessages(ctx context.Context, userId string) ([]*firestore.DocumentSnapshot, error) {
+	// Firestoreクエリを作成
+	// "messages" コレクションから "userId" が一致しない未読のメッセージを取得する
+	iter := s.firestoreClient.Collection(collectionMessages).Documents(ctx)
 
-	// クエリを実行し、該当するすべてのドキュメントを取得
-	// Documents(ctx).GetAll()は、指定したクエリに一致するすべてのドキュメントのスナップショットを取得
-	messagesSnapshot, err := messagesQuery.Documents(ctx).GetAll()
-	if err != nil {
-		log.Printf("Failed to fetch messages: %v", err)
-		return nil, status.Errorf(codes.Internal, "Failed to fetch messages: %v", err)
+	var filteredMessages []*firestore.DocumentSnapshot
+	for {
+		doc, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			log.Printf("Failed to iterate messages: %v", err)
+			return nil, status.Errorf(codes.Internal, "Failed to fetch messages: %v", err)
+		}
+
+		// "read" フィールドが存在しない、または false のメッセージをフィルタリング
+		data := doc.Data()
+		read, readExists := data["read"].(bool)
+		if !readExists || !read {
+			// "userId" フィールドをチェックして、一致しない場合のみ追加
+			if docUserId, ok := data["userId"].(string); ok && docUserId != userId {
+				filteredMessages = append(filteredMessages, doc)
+			}
+		}
 	}
 
-	return messagesSnapshot, nil
+	return filteredMessages, nil
 }
 
 // メッセージを取得し、未読を既読に更新するメインのgRPCメソッド
@@ -158,7 +171,7 @@ func (s *ChatServiceServer) GetChatMessages(ctx context.Context, req *pb.ChatReq
 	}
 
 	// 未読メッセージを取得
-	messagesSnapshot, err := s.fetchUnreadMessages(ctx)
+	messagesSnapshot, err := s.fetchUnreadMessages(ctx, req.UserId)
 	if err != nil {
 		return nil, err
 	}
