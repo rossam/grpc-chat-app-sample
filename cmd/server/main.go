@@ -89,30 +89,36 @@ func (s *ChatServiceServer) getUserSuffix(ctx context.Context, userId string) (s
 
 // "read"フィールドが存在しないメッセージにデフォルト値を設定する関数
 func updateMessagesWithDefaultRead(ctx context.Context, client *firestore.Client) error {
-	// "messages"コレクション内にある"read"フィールドが存在しないメッセージ群を反復処理
-	iter := client.Collection(collectionMessages).Where("read", "==", nil).Documents(ctx)
+	// メッセージコレクションの全ドキュメントを取得
+	iter := client.Collection("messages").Documents(ctx)
+	// イテレータのクリーンアップ
+	defer iter.Stop()
+
 	for {
+		// 次のドキュメントを取得
 		doc, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
-			break
+			// すべてのドキュメントを処理し終えた場合
+			return nil
 		}
 		if err != nil {
+			// ドキュメント取得中のエラー処理
 			log.Printf("Error iterating documents: %v", err)
 			return err
 		}
 
-		// `read`フィールドが存在しない場合、falseを設定
-		_, err = doc.Ref.Update(ctx, []firestore.Update{
-			{Path: "read", Value: false},
-		})
-
-		if err != nil {
-			log.Printf("Failed to update document %s: %v", doc.Ref.ID, err)
-		} else {
-			log.Printf("Document %s updated successfully", doc.Ref.ID)
+		// `read` フィールドが存在しない場合にのみ追加
+		if _, exists := doc.Data()["read"]; !exists {
+			_, err := doc.Ref.Update(ctx, []firestore.Update{
+				{Path: "read", Value: false},
+			})
+			if err != nil {
+				log.Printf("Failed to update document %s: %v", doc.Ref.ID, err)
+			} else {
+				log.Printf("Document %s updated successfully", doc.Ref.ID)
+			}
 		}
 	}
-	return nil
 }
 
 // 未読のメッセージをFirestoreから取得する関数
