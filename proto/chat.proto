@@ -5,6 +5,9 @@ package chat;
 // Goのコードを生成する際のパッケージパスを指定
 option go_package = "gen/api/chat";
 
+// C# 用の名前空間オプションを追加
+option csharp_namespace = "grpc_chat_app.Scripts.Generated";
+
 // サービス定義
 service ChatService {
   // チャットメッセージをリクエストしてレスポンスを得るメソッド
